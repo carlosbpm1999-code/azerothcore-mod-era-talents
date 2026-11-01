@@ -47,6 +47,9 @@ while read -r rel data custom || [[ -n "$rel" ]]; do
   CUSTOM_SQL["$rel"]="$custom"
 done < "$MANIFEST"
 
+echo "==> cross-dataset lint (all datasets; writes nothing — aborts before any artifact on error)"
+"${PYRUN[@]}" "$ROOT/tools/gen_era_talents.py" --check-all "${DATASETS[@]}"
+
 for ds in "${DATASETS[@]}"; do
   rel="${ds#"$ROOT/era-data/"}"
   echo "==> $rel: era_talent SQL + custom-spell SQL"

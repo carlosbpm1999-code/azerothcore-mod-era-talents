@@ -7,7 +7,7 @@ Single source of truth: era-data/<era>/<class>.yaml. --sql writes DELETE+INSERT 
 """
 from __future__ import annotations
 import functools
-import argparse, os, pathlib, yaml
+import argparse, os, pathlib, sys, yaml
 
 ERA_NAMES = {0: "Vanilla", 1: "TBC", 2: "WotLK"}
 CLASS_TOKENS = {1: "WARRIOR", 2: "PALADIN", 3: "HUNTER", 4: "ROGUE", 5: "PRIEST", 7: "SHAMAN", 8: "MAGE", 9: "WARLOCK", 11: "DRUID"}
@@ -344,7 +344,9 @@ def build_spell_mods(d) -> dict:
     return spell_mods
 
 
-def lint(d):
+def lint(d, claims=None):
+    """Per-dataset lint. When `claims` is a dict, it is filled with the ids this dataset DEFINES
+    (for check_all's cross-dataset pass): {"nodes": set, "spells": {id: what}, "creatures": set}."""
     ids = {int(n["id"]) for _, n in _nodes(d)}
     era = int(d.get("era", 0))
     nlo, nhi = ERA_NODE_WINDOW.get(era, ERA_NODE_WINDOW[0])
@@ -352,6 +354,10 @@ def lint(d):
         nid = int(n["id"])
         if not (nlo <= nid < nhi):
             raise ValueError(f"node {nid}: id outside the era-{era} node window [{nlo},{nhi})")
+        mr = int(n.get("maxRank", 0))
+        if not (1 <= mr <= 8):
+            raise ValueError(f"node {nid}: maxRank {mr} outside 1..8 (custom_passive_id reserves "
+                             f"8 spell ids per node: 920000 + (node-18000)*8 + (rank-1))")
     seen_cell = {}
     # Pre-seed the sentinel id so BOTH the node-passive collision check (below, in the node loop)
     # and the helper collision check (further down) reject any authored id landing on it —
@@ -691,6 +697,10 @@ def lint(d):
             raise ValueError(f"totem creature {entry}: missing name")
         if t.get("pulse") is None:
             raise ValueError(f"totem {t.get('name','?')}: missing pulse spell id")
+    if claims is not None:
+        claims["nodes"] = set(ids)
+        claims["spells"] = {k: v for k, v in seen_pid.items() if k != SENTINEL_SPELL_ID}
+        claims["creatures"] = set(seen_creatures)
     return True
 
 
@@ -1780,6 +1790,59 @@ def emit_meta_sql(dataset_paths) -> str:
             f"INSERT INTO `era_talent_meta` (`k`, `v`) VALUES ('generation', '{stamp}');\n")
 
 
+def check_all(dataset_paths):
+    """Cross-dataset lint (run by era-regen.sh BEFORE anything is written). lint() only sees one
+    dataset, so it cannot catch a second file reusing an id. Errors: a node id defined twice in
+    the same era; a spell id DEFINED (formula passive, pet buff, helper) by two datasets; a totem
+    creature entry used twice; an explicit band grant (920000-949999) whose spell no dataset
+    defines or that another CLASS defines. Grants of stock spells (<920000) are not checked:
+    sharing them is normal (the Vanilla and TBC trees of a class grant the same stock spells).
+    Warning: one dataset's node ids spanning more than one block of 100 (convention: one per class).
+    Returns (errors, warnings), lists of strings."""
+    errors, warnings = [], []
+    node_owner, spell_owner, creature_owner, loaded = {}, {}, {}, []
+    for p in dataset_paths:
+        d = _load(p)
+        claims = {}
+        try:
+            lint(d, claims)
+        except ValueError as e:
+            errors.append(f"{p}: {e}")
+            continue
+        era, cls = int(d["era"]), int(d["class"])
+        loaded.append((p, d, cls))
+        for nid in sorted(claims["nodes"]):
+            prev = node_owner.setdefault((era, nid), p)
+            if prev != p:
+                errors.append(f"{p}: node {nid} is also defined in {prev} (era {era})")
+        blocks = sorted({nid // 100 for nid in claims["nodes"]})
+        if len(blocks) > 1:
+            warnings.append(f"{p}: node ids span {len(blocks)} blocks of 100 "
+                            f"({', '.join(f'{b}xx' for b in blocks)}); convention is one block per class")
+        for sid, what in sorted(claims["spells"].items()):
+            prev = spell_owner.setdefault(sid, (p, cls, what))
+            if prev[0] != p:
+                errors.append(f"{p}: spell id {sid} {what} is also defined in {prev[0]} {prev[2]}")
+        for c in sorted(claims["creatures"]):
+            prev = creature_owner.setdefault(c, p)
+            if prev != p:
+                errors.append(f"{p}: totem creature {c} is also used in {prev}")
+    for p, d, cls in loaded:
+        for _tab, n in _nodes(d):
+            for rank, spells in sorted((n.get("grants") or {}).items(), key=lambda kv: int(kv[0])):
+                for s in spells or []:
+                    s = int(s)
+                    if not (CUSTOM_PASSIVE_BASE <= s < CUSTOM_PASSIVE_END):
+                        continue
+                    owner = spell_owner.get(s)
+                    if owner is None:
+                        errors.append(f"{p}: node {n['id']} rank {rank} grants {s}, which no dataset defines")
+                    elif owner[1] != cls:
+                        errors.append(f"{p}: node {n['id']} rank {rank} grants {s}, which another class "
+                                      f"defines ({owner[0]})")
+    return errors, warnings
+
+
 def _load(dataset_path: str) -> dict:
     """Load a dataset YAML and resolve `_ref`: an inline `_ref:` dict wins (used by unit tests);
     otherwise a top-level `ref: <relpath>` string is loaded relative to the dataset file's dir."""
@@ -1798,14 +1861,29 @@ def main():
     ap.add_argument("--custom-sql", metavar="YAML")
     ap.add_argument("--meta-sql", nargs="+", metavar="YAML",
                     help="ALL dataset yamls; emits the era_talent_meta generation-stamp row")
-    ap.add_argument("-o", "--out", required=True)
+    ap.add_argument("--check-all", nargs="+", metavar="YAML",
+                    help="ALL dataset yamls; cross-dataset id checks (see check_all); writes nothing")
+    ap.add_argument("-o", "--out")
     a = ap.parse_args()
+    if a.check_all:
+        errors, warnings = check_all(a.check_all)
+        for w in warnings:
+            print(f"WARNING: {w}", file=sys.stderr)
+        for e in errors:
+            print(f"ERROR: {e}", file=sys.stderr)
+        print(f"check-all: {len(a.check_all)} datasets, {len(errors)} error(s), {len(warnings)} warning(s)")
+        sys.exit(1 if errors else 0)
+    if not a.out:
+        ap.error("-o/--out is required")
     if a.meta_sql:
         pathlib.Path(a.out).write_text(emit_meta_sql(a.meta_sql))
         return
     src = a.sql or a.lua or a.custom_sql
     d = _load(src)
-    lint(d)
+    try:
+        lint(d)
+    except ValueError as e:
+        raise SystemExit(f"ERROR: {src}: {e}")
     if a.sql:
         out = emit_sql(d)
     elif a.lua:
