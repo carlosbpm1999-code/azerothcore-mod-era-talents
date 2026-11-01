@@ -16,6 +16,16 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 MOD="$ROOT"   # this repo IS the module
 SQLDIR="$MOD/data/sql/world/base"
 MANIFEST="$ROOT/era-data/datasets.txt"
+# Python runner: uv when available (unchanged upstream behaviour), else the system python3 with
+# PyYAML (same fallback as client-addon/EraTalents/build-addon.sh). Abort early with a clear message
+# rather than failing halfway through a regen with a partial set of artifacts.
+if command -v uv >/dev/null 2>&1; then
+  PYRUN=(uv run --with pyyaml python)
+else
+  python3 -c 'import yaml' >/dev/null 2>&1 \
+    || { echo "ERROR: neither uv nor python3 with PyYAML found — install uv, or PyYAML for python3" >&2; exit 1; }
+  PYRUN=(python3)
+fi
 # Pre-check field count over the WHOLE manifest before parsing a single line — matches the
 # pytest helper's `assert len(parts) == 3`. Must run before the read loop below, not inside it,
 # so a bad line anywhere aborts before any dataset is processed.
@@ -40,18 +50,18 @@ done < "$MANIFEST"
 for ds in "${DATASETS[@]}"; do
   rel="${ds#"$ROOT/era-data/"}"
   echo "==> $rel: era_talent SQL + custom-spell SQL"
-  uv run --with pyyaml python "$ROOT/tools/gen_era_talents.py" --sql "$ds" \
+  "${PYRUN[@]}" "$ROOT/tools/gen_era_talents.py" --sql "$ds" \
     -o "$SQLDIR/${DATA_SQL[$rel]}"
-  uv run --with pyyaml python "$ROOT/tools/gen_era_talents.py" --custom-sql "$ds" \
+  "${PYRUN[@]}" "$ROOT/tools/gen_era_talents.py" --custom-sql "$ds" \
     -o "$SQLDIR/${CUSTOM_SQL[$rel]}"
 done
 
 echo "==> band-allowlist header (EraBandAllowlist.gen.h)"
-uv run --with pyyaml python "$ROOT/tools/gen_band_allowlist.py" "$ROOT/era-data/band-allowlist.yaml" \
+"${PYRUN[@]}" "$ROOT/tools/gen_band_allowlist.py" "$ROOT/era-data/band-allowlist.yaml" \
   -o "$MOD/src/EraBandAllowlist.gen.h"
 
 echo "==> era_talent_meta generation stamp"
-uv run --with pyyaml python "$ROOT/tools/gen_era_talents.py" \
+"${PYRUN[@]}" "$ROOT/tools/gen_era_talents.py" \
   --meta-sql "${DATASETS[@]}" -o "$SQLDIR/2026_08_14_11_era_talent_meta.sql"
 
 echo "==> addon Lua"
@@ -79,7 +89,7 @@ if [[ "${1:-}" == "--sync-fork" ]]; then
       --exclude=client-patch/base --exclude=deps -cf - . | tar -C "$AC/modules/mod-era-talents" -xf -
 fi
 
-STAMP="$(uv run --with pyyaml python - "$ROOT/tools" "${DATASETS[@]}" <<'PY'
+STAMP="$("${PYRUN[@]}" - "$ROOT/tools" "${DATASETS[@]}" <<'PY'
 import sys
 sys.path.insert(0, sys.argv[1])
 import gen_era_talents as G
