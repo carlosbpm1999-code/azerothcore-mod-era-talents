@@ -25,6 +25,12 @@ namespace EraTalentBots
     // (EraTalentsComms) so the two can never disagree. Exists in EVERY build (IsBot is false
     // without playerbots, so it reduces to the real-player rule).
     bool IsEraManaged(Player* p);
+    // Our fork (D4, 2026-11-01): true for a bot whose ACCOUNT is a playerbots bot account
+    // (username starts with AiPlayerbot.RandomBotAccountPrefix: random, addclass, roster bots).
+    // False for real players and for a player's own characters logged in as bots (they keep
+    // their era build untouched). If the bot account list is empty or unavailable, falls back
+    // to today's behaviour: every bot is managed (logged once as an error).
+    bool IsManagedBot(Player* p);
 
     // Full reconcile at the bot's CURRENT level. Always tears down stale managed-era rows
     // first (bracket up-moves would otherwise leave era clone spells in the spellbook where

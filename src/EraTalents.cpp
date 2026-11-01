@@ -204,6 +204,14 @@ namespace EraTalents
             err = "talent not for your class";
             return false;
         }
+        // Our fork (D4, 2026-11-01): characters of bot accounts never learn fourth-branch nodes
+        // (tab > 3), whatever the path (bot build, .eratalents learn). Real players and a player's
+        // own characters logged in as bots are not affected (EraTalentBots::IsManagedBot).
+        if (n->tab > 3 && EraTalentBots::IsManagedBot(p))
+        {
+            err = "fourth-branch talents are not learnable by bot accounts";
+            return false;
+        }
 
         uint8 rank = CurrentRank(p, era, talentId);
         if (rank >= n->maxRank)
