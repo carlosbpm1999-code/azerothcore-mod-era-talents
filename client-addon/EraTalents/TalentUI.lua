@@ -87,9 +87,63 @@ function ET.IsReachable(node, spentInTab, ranks, byId)
   return true
 end
 
--- Points spent per tree {tab1, tab2, tab3} for a rank table. Pure -> headless-testable.
+-- Tree tabs per class: 3 for every stock tree, 4 when a fourth branch is authored. Tab buttons are
+-- built up to MAX_TABS once and shown/hidden per tree, so a 3-tab class looks exactly as before.
+local MAX_TABS = 4
+
+-- Inspect ("top") tab strip geometry, from the 3.3.5a client's FrameXML (Blizzard_InspectUI,
+-- UIPanelTemplates): tab 1 sits at TOPLEFT 70,-40 (right of the 60px portrait at x 7..67, whose
+-- bottom -66 overlaps the tab row -40..-72, so the strip cannot start further left); the others
+-- chain LEFT->RIGHT with NO gap, so the last tab's right edge = 70 + sum of tab widths. The strip
+-- must end by x = 350, the right edge of the stock inspect scroll bar (TOPRIGHT -65 + 31px bar).
+-- TabButtonTemplate: tab width = text + padding + 32 (Left/Right caps 16px each); its hover
+-- highlight is anchored BOTTOM +2 with the tab's width, so it overhangs the right edge by 2px.
+local TOP_TABS_LEFT, TOP_TABS_RIGHT = 70, 350
+local TAB_SIDES = 32
+local TAB_HIGHLIGHT_OVERHANG = 2
+
+-- Number of tree tabs: the highest tab key in tree.tabs or used by a talent (capped). Pure.
+function ET.NumTabs(tree)
+  local n = 0
+  for k in pairs(tree.tabs or {}) do
+    if type(k) == "number" and k > n then n = k end
+  end
+  for _, t in ipairs(tree.talents) do
+    if t.tab > n then n = t.tab end
+  end
+  return math.min(n, MAX_TABS)
+end
+
+-- Tab widths that fit `budget`: tabs at or under their fair share keep their natural width, the
+-- rest share one common cap (floored, never below TAB_SIDES + 1), so sum(result) <= budget for any
+-- realistic tab count. Returns a new array; equal to `widths` when everything already fits. Pure.
+function ET.FitTabWidths(widths, budget)
+  local out, total = {}, 0
+  for k, w in ipairs(widths) do out[k] = w; total = total + w end
+  if total <= budget then return out end
+  local order = {}
+  for k in ipairs(widths) do order[k] = k end
+  table.sort(order, function(a, b) return widths[a] < widths[b] end)
+  local remaining, left, cap = budget, #widths, nil
+  for _, k in ipairs(order) do
+    if cap then break end
+    local share = remaining / left
+    if widths[k] <= share then
+      remaining, left = remaining - widths[k], left - 1
+    else
+      cap = math.max(math.floor(share), TAB_SIDES + 1)
+    end
+  end
+  for k, w in ipairs(widths) do
+    if cap and w > cap then out[k] = cap end
+  end
+  return out
+end
+
+-- Points spent per tree {tab1, ..., tabN} for a rank table. Pure -> headless-testable.
 function ET.SpecPoints(tree, ranks)
-  local pts = { 0, 0, 0 }
+  local pts = {}
+  for i = 1, ET.NumTabs(tree) do pts[i] = 0 end
   for _, n in ipairs(tree.talents) do
     if pts[n.tab] then pts[n.tab] = pts[n.tab] + ((ranks and ranks[n.id]) or 0) end
   end
@@ -101,7 +155,7 @@ end
 function ET.PrimaryTab(tree, ranks, fallback)
   local pts = ET.SpecPoints(tree, ranks)
   local best, bestPts = fallback, 0
-  for i = 1, 3 do
+  for i = 1, #pts do
     if pts[i] > bestPts then best, bestPts = i, pts[i] end
   end
   return best
@@ -271,7 +325,7 @@ local function BuildTreeArea(v)
   f._arrows = {}          -- pooled arrowhead textures
 end
 
--- Three tree tabs. "bottom" = CharacterFrame tabs (own window, as before); "top" = TabButtonTemplate
+-- Up to MAX_TABS tree tabs (the 4th starts hidden; ShowViewTab shows the class's count). "bottom" = CharacterFrame tabs (own window, as before); "top" = TabButtonTemplate
 -- at the stock InspectTalentFrameTab positions (70,-40 then chained) because the Inspect frame's
 -- bottom already holds its Character/PvP/Talents tabs. Names MUST be <frame>Tab<i>:
 -- PanelTemplates_SetTab resolves tabs by that name.
@@ -279,18 +333,30 @@ local function BuildTabs(v)
   local f = v.frame
   local name = f:GetName()
   f.tabs = {}
-  for i = 1, 3 do
+  for i = 1, MAX_TABS do
     local tab
     if v.tabStyle == "top" then
       tab = CreateFrame("Button", name .. "Tab" .. i, f, "TabButtonTemplate")
-      if i == 1 then tab:SetPoint("TOPLEFT", 70, -40)
+      if i == 1 then tab:SetPoint("TOPLEFT", TOP_TABS_LEFT, -40)
       else tab:SetPoint("LEFT", f.tabs[i - 1], "RIGHT") end
+      -- Full branch name for a tab LayoutTabs had to shorten (etFullName set); nothing otherwise.
+      tab:SetScript("OnEnter", function(self)
+        if self.etFullName then
+          GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+          GameTooltip:SetText(self.etFullName)
+          GameTooltip:Show()
+        end
+      end)
+      tab:SetScript("OnLeave", function(self)
+        if GameTooltip:IsOwned(self) then GameTooltip:Hide() end
+      end)
     else
       tab = CreateFrame("Button", name .. "Tab" .. i, f, "CharacterFrameTabButtonTemplate")
       if i == 1 then tab:SetPoint("BOTTOMLEFT", 15, 46)
       else tab:SetPoint("LEFT", f.tabs[i - 1], "RIGHT", -15, 0) end
     end
     tab:SetScript("OnClick", function() ET.ShowViewTab(v, i) end)
+    if i > 3 then tab:Hide() end
     f.tabs[i] = tab
   end
   PanelTemplates_SetNumTabs(f, 3)
@@ -561,7 +627,7 @@ local function UpdateFooter(v, tree)
   local tabName = (tree.tabs[v.activeTab] and tree.tabs[v.activeTab].name) or "Talents"
   f.footerSpent:SetText(tabName .. " Talents: " .. (pts[v.activeTab] or 0))
   if v.readOnly then
-    f.footerUnspent:SetText(pts[1] .. "/" .. pts[2] .. "/" .. pts[3])
+    f.footerUnspent:SetText(table.concat(pts, "/"))
   else
     f.footerUnspent:SetText("Unspent Talents: " .. (v.state.availPts or 0))
   end
@@ -570,18 +636,56 @@ end
 -- ---------------------------------------------------------------------------
 -- View rendering.
 -- ---------------------------------------------------------------------------
-function ET.ShowViewTab(v, i)
-  local tree = TreeFor(v.state.era, v.classId)
-  if not tree then return end
-  v.activeTab = i
+-- Name, show/hide and size the tab buttons for a tree with `n` tabs. Every shown tab is measured
+-- from scratch (text width reset first, so a cap from a previous inspection never shrinks the
+-- measurement). Only an inspect ("top") strip with more than 3 tabs is fitted: its tabs get the
+-- widths from FitTabWidths so the last right edge, hover highlight included, stays at x <=
+-- TOP_TABS_RIGHT; a shortened tab keeps its full name in etFullName for the OnEnter tooltip.
+-- Every other case resizes exactly as before (padding path, which also resets the text width).
+function ET.LayoutTabs(v, tree, n)
   local f = v.frame
-  for t = 1, 3 do
+  local shown = {}
+  for t = 1, MAX_TABS do
     local tab = f.tabs[t]
-    if tab and tree.tabs[t] then
-      tab:SetText(tree.tabs[t].name)
+    if tab then
+      tab.etFullName = nil
+      if t <= n and tree.tabs[t] then
+        _G[tab:GetName() .. "Text"]:SetWidth(0)
+        tab:SetText(tree.tabs[t].name)
+        tab:Show()
+        shown[#shown + 1] = t
+      else
+        tab:Hide()
+      end
+    end
+  end
+
+  local natural, fit
+  if v.tabStyle == "top" and n > 3 then
+    natural = {}
+    for k, t in ipairs(shown) do natural[k] = f.tabs[t]:GetTextWidth() + v.tabPad + TAB_SIDES end
+    fit = ET.FitTabWidths(natural, TOP_TABS_RIGHT - TOP_TABS_LEFT - TAB_HIGHLIGHT_OVERHANG)
+  end
+  for k, t in ipairs(shown) do
+    local tab = f.tabs[t]
+    if fit and fit[k] < natural[k] then
+      PanelTemplates_TabResize(tab, nil, fit[k])
+      tab.etFullName = tree.tabs[t].name
+    else
       PanelTemplates_TabResize(tab, v.tabPad)
     end
   end
+end
+
+function ET.ShowViewTab(v, i)
+  local tree = TreeFor(v.state.era, v.classId)
+  if not tree then return end
+  local n = ET.NumTabs(tree)
+  if i > n then i = 1 end
+  v.activeTab = i
+  local f = v.frame
+  ET.LayoutTabs(v, tree, n)
+  PanelTemplates_SetNumTabs(f, n)
   PanelTemplates_SetTab(f, i)
   if tree.tabs[i] and tree.tabs[i].background then SetTreeBackground(v, tree.tabs[i].background) end
 
