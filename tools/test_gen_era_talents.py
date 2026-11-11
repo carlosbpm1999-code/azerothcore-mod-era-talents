@@ -1707,14 +1707,14 @@ def test_helper_proc_emits_spell_proc():
 
 
 def test_lint_accepts_helper_effects_without_aura():
-    d = {"tabs": [{"key": 1, "name": "t", "nodes": []}],
+    d = {"tabs": [{"key": 1, "name": "t", "background": "t", "nodes": []}],
          "helpers": [{"id": 932951, "name": "VE Heal",
                       "effects": [{"effect": 10, "basePoints": 0, "targetA": 1}]}]}
     assert G.lint(d) is True
 
 
 def test_lint_rejects_helper_more_than_3_effects():
-    d = {"tabs": [{"key": 1, "name": "t", "nodes": []}],
+    d = {"tabs": [{"key": 1, "name": "t", "background": "t", "nodes": []}],
          "helpers": [{"id": 932952, "name": "Too Many Effects",
                       "effects": [{"effect": 6, "aura": 4, "targetA": 1},
                                   {"effect": 6, "aura": 5, "targetA": 1},
@@ -1725,7 +1725,7 @@ def test_lint_rejects_helper_more_than_3_effects():
 
 
 def test_lint_rejects_helper_proc_without_flags():
-    d = {"tabs": [{"key": 1, "name": "t", "nodes": []}],
+    d = {"tabs": [{"key": 1, "name": "t", "background": "t", "nodes": []}],
          "helpers": [{"id": 932953, "name": "Bad Proc", "aura": 4, "proc": {"chance": 100}}]}
     with pytest.raises(ValueError, match="proc needs flags"):
         G.lint(d)
@@ -3870,3 +3870,63 @@ def test_merge_script_reads_manifest():
     sh = pathlib.Path("client-patch/merge-into-patch.sh").read_text()
     assert "era-data/datasets.txt" in sh
     assert 'DATASETS=("$ROOT/era-data/vanilla/mage.yaml"' not in sh
+
+
+# --- stanceBarOrder helper key + tab background lint (Gladiator Stance, 2026-11-11) -------------------
+
+def test_helper_stance_bar_order_emitted_when_authored():
+    """`stanceBarOrder` maps to the StanceBarOrder column (the stance-bar slot) on a templated clone."""
+    over = G.helper_overrides({"id": 932848, "name": "Stance Clone", "template": 2458,
+                               "stanceBarOrder": 3}, templated=True)
+    assert over["StanceBarOrder"] == 3
+
+
+def test_helper_stance_bar_order_inherited_when_absent_on_templated():
+    """Unlisted on a templated helper -> not overridden, so the template's own slot is inherited."""
+    over = G.helper_overrides({"id": 932848, "name": "Stance Clone", "template": 2458}, templated=True)
+    assert "StanceBarOrder" not in over
+
+
+def test_helper_stance_bar_order_defaults_zero_on_legacy():
+    """Legacy (untemplated) helpers force-fill unlisted scalars with 0 — byte-neutral for shipped data."""
+    over = G.helper_overrides({"id": 932949, "name": "Legacy", "aura": 4})
+    assert over["StanceBarOrder"] == 0
+
+
+def test_stance_bar_order_reaches_emitted_sql_row():
+    over = G.helper_overrides({"id": 932848, "name": "Stance Clone", "aura": 4, "stanceBarOrder": 3})
+    vals = G._row_values(over, None)
+    assert vals[G.COLS.index("StanceBarOrder")] == 3
+
+
+def test_lint_accepts_tab_with_background():
+    assert G.lint(_minimal_ds(0, 18998)) is True
+
+
+@pytest.mark.parametrize("bg", [None, "", "   "])
+def test_lint_rejects_tab_without_background(bg):
+    d = _minimal_ds(0, 18998)
+    if bg is None:
+        del d["tabs"][0]["background"]
+    else:
+        d["tabs"][0]["background"] = bg
+    with pytest.raises(ValueError, match="background"):
+        G.lint(d)
+
+
+def test_lint_rejects_fourth_tab_without_background():
+    """A new (fourth) tab is the motivating case: the three shipped tabs carry art, tab 4 must too."""
+    d = _minimal_ds(0, 18998)
+    d["tabs"].append({"key": 4, "name": "Gladiator", "nodes": []})
+    with pytest.raises(ValueError, match="tab 4"):
+        G.lint(d)
+
+
+def test_shipped_datasets_every_tab_has_background():
+    root = pathlib.Path(__file__).resolve().parent.parent / "era-data"
+    for line in (root / "datasets.txt").read_text().splitlines():
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        d = _yaml.safe_load((root / line.split()[0]).read_text())
+        for tab in d["tabs"]:
+            assert str(tab.get("background") or "").strip(), (line.split()[0], tab.get("key"))

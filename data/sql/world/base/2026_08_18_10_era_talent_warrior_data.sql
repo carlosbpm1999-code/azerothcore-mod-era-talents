@@ -53,7 +53,8 @@ INSERT INTO `era_talent` (id,eraId,classId,tab,tierRow,col,maxRank,prereqTalentI
 (18549,0,1,3,4,1,1,0,20),
 (18550,0,1,3,4,2,2,0,20),
 (18551,0,1,3,5,2,5,0,25),
-(18552,0,1,3,6,1,1,18549,30);
+(18552,0,1,3,6,1,1,18549,30),
+(18553,0,1,4,0,0,1,0,0);
 INSERT INTO `era_talent_rank` (talentId,`rank`,grantedSpellId) VALUES
 (18501,1,924008),
 (18501,2,924009),
@@ -226,4 +227,5 @@ INSERT INTO `era_talent_rank` (talentId,`rank`,grantedSpellId) VALUES
 (18551,3,924410),
 (18551,4,924411),
 (18551,5,924412),
-(18552,1,932841);
+(18552,1,932841),
+(18553,1,932848);

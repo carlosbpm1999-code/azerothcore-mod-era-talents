@@ -347,6 +347,16 @@ def build_spell_mods(d) -> dict:
 def lint(d, claims=None):
     """Per-dataset lint. When `claims` is a dict, it is filled with the ids this dataset DEFINES
     (for check_all's cross-dataset pass): {"nodes": set, "spells": {id: what}, "creatures": set}."""
+    # Every tab must name its talent-frame art. The addon draws `background` (passed through verbatim
+    # into the generated Lua, see the tabs emitter) as the tab's backdrop; an absent or blank value
+    # silently renders an EMPTY frame for that tab. All shipped datasets already carry one per tab;
+    # this keeps a new (e.g. fourth) tab from slipping through without it.
+    for tab in d.get("tabs") or []:
+        bg = tab.get("background")
+        if not isinstance(bg, str) or not bg.strip():
+            raise ValueError(f"tab {tab.get('key')} ({tab.get('name', '?')}): background: is missing "
+                             f"or empty (the addon would draw the tab with no art; use a client "
+                             f"talent-frame background such as WarriorArms)")
     ids = {int(n["id"]) for _, n in _nodes(d)}
     era = int(d.get("era", 0))
     nlo, nhi = ERA_NODE_WINDOW.get(era, ERA_NODE_WINDOW[0])
@@ -1441,6 +1451,14 @@ _HELPER_SCALARS = [
     # helpers default it to 0 like every unlisted scalar, which is what the un-keyed emission
     # already produced — byte-neutral for shipped data).
     ("auraInterruptFlags", "AuraInterruptFlags"),
+    # StanceBarOrder: position of a SHAPESHIFT spell (Effect 36 aura) on the client's stance bar
+    # (stock warrior stances: Battle 2457 = 0, Defensive 71 = 1, Berserker 2458 = 2). CLIENT-relevant:
+    # tools/build_client_dbc.py builds the client row through this same helper_overrides, and a
+    # templated stance clone would otherwise INHERIT its template's slot and collide with it on the
+    # bar. Motivating case: the Gladiator Stance 932848 (form 23), templated off Berserker Stance
+    # 2458, takes slot 3. Unlisted on every existing helper (templated ones inherit, legacy ones get
+    # the 0 that the un-keyed emission already produced), so adding this key is byte-neutral.
+    ("stanceBarOrder", "StanceBarOrder"),
 ]
 
 # Helper keys that are LINT/AUDIT ONLY — read by tools/era_audit.py, never emitted as a spell_dbc

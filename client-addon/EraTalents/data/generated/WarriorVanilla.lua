@@ -3,7 +3,7 @@ EraTalentsData = EraTalentsData or {}
 EraTalentsData[0] = EraTalentsData[0] or {}
 EraTalentsData[0][1] = {
   eraName = "Vanilla", className = "WARRIOR",
-  tabs = { [1]={name="Arms", background="WarriorArms"}, [2]={name="Fury", background="WarriorFury"}, [3]={name="Protection", background="WarriorProtection"} },
+  tabs = { [1]={name="Arms", background="WarriorArms"}, [2]={name="Fury", background="WarriorFury"}, [3]={name="Protection", background="WarriorProtection"}, [4]={name="Gladiator", background="WarriorArms"} },
   talents = {
     { id=18501, tab=1, tier=0, col=0, name="Improved Heroic Strike", icon="ability_rogue_ambush", maxRank=3, prereqTalent=0, prereqPoints=0, wired=true, tooltip={ "Reduces the cost of your Heroic Strike ability by 1 rage point.", "Reduces the cost of your Heroic Strike ability by 2 rage points.", "Reduces the cost of your Heroic Strike ability by 3 rage points." } },
     { id=18502, tab=1, tier=0, col=1, name="Deflection", icon="ability_parry", maxRank=5, prereqTalent=0, prereqPoints=0, wired=true, tooltip={ "Increases your Parry chance by 1%.", "Increases your Parry chance by 2%.", "Increases your Parry chance by 3%.", "Increases your Parry chance by 4%.", "Increases your Parry chance by 5%." } },
@@ -57,6 +57,7 @@ EraTalentsData[0][1] = {
     { id=18550, tab=3, tier=4, col=2, name="Improved Shield Bash", icon="ability_warrior_shieldbash", maxRank=2, prereqTalent=0, prereqPoints=20, wired=true, tooltip={ "Gives your Shield Bash ability a 50% chance to silence the target for 3 sec.", "Gives your Shield Bash ability a 100% chance to silence the target for 3 sec." } },
     { id=18551, tab=3, tier=5, col=2, name="One-Handed Weapon Specialization", icon="inv_sword_20", maxRank=5, prereqTalent=0, prereqPoints=25, wired=true, tooltip={ "Increases the damage you deal with One-Handed Melee weapons by 2%.", "Increases the damage you deal with One-Handed Melee weapons by 4%.", "Increases the damage you deal with One-Handed Melee weapons by 6%.", "Increases the damage you deal with One-Handed Melee weapons by 8%.", "Increases the damage you deal with One-Handed Melee weapons by 10%." } },
     { id=18552, tab=3, tier=6, col=1, name="Shield Slam", icon="inv_shield_05", maxRank=1, prereqTalent=18549, prereqPoints=30, wired=true, tooltip={ "Slam the target with your shield, causing 225 to 235 damage, modified by your shield block value, and has a 50% chance of dispelling 1 magic effect on the target. Also causes a high amount of threat." }, grant={ [1]=932841 } },
+    { id=18553, tab=4, tier=0, col=0, name="Gladiator Stance", icon="ability_warrior_unrelentingassault", maxRank=1, prereqTalent=0, prereqPoints=0, wired=true, tooltip={ "Teaches Gladiator Stance. All of your warrior abilities can be used regardless of stance, damage taken is reduced by 5%, and rage generated from damage dealt is increased by 10%." }, grant={ [1]=932848 } },
   },
   spellMods = {
     ["Execute"] = { {talent=18528, attr="cost", kind="flat", vals={ -20, -50 } } },

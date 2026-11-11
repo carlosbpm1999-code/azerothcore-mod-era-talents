@@ -846,6 +846,64 @@ helpers:
   # sum's own filter accepts an EquippedItemClass -1 aura with misc 0 and no class mask — which both
   # 2457's effect and this one are — so +10 + -10 = 0 exactly, for spell and auto-attack alike.
   - { effect: 6, aura: 280, basePoints: -10, dieSides: 0, misc: 0,   targetA: 1 }
+# === GLADIATOR (fourth branch, tab 4) — Gladiator Stance 932848 + its passive 932849 (2026-11-11). ===
+# Form 23 (Stances bit 0x400000) is the EMPTY 3.3.5a SpellShapeshiftForm row this fork fills: server row
+# data/sql/world/base/2026_11_11_00_era_gladiator_stance_form.sql (BonusActionBar 4 = action-bar page 10,
+# Flags 7 like 17/18/19, CreatureType -1); client row from the project's esES patch tool.
+# 932848 clones Berserker Stance 2458 (family 4 mask 0x800000, Category 47 = the stances' shared 1 s
+# cooldown, instant, free, attrs/visual) and re-authors all three effect slots:
+#   E1 aura 36 SHAPESHIFT misc 23 (the form; the amount is unused, bp 0 / ds 0 like the stock -1 / 1 = 0).
+#   E2 aura 275 MOD_IGNORE_SHAPESHIFT, per-effect mask ALL-ONES on the three family words -> every
+#      family-4 (warrior) spell ignores its stance requirement (Spell::CheckCast / SpellInfo shapeshift
+#      check; IsAffectedOnSpell also requires family 4, which the 2458 template carries). NOT aura 262
+#      (IGNORE_TARGET_AURASTATE also clears aura-state/combo-point checks).
+#   E3 aura 87 MOD_DAMAGE_PERCENT_TAKEN -5 % all schools (misc 127). dieSides 0 => value = basePoints
+#      (SpellEffectInfo::CalcValue, `case 0: break`).
+# NO threat modifier (decided). Rage on entering: form 23 is not in the warrior rage clamp (forms 17/18/19,
+# AuraEffect::HandleAuraModShapeshift), so all current rage is kept — accepted, no AuraScript.
+# 932849 (rage +10 % from damage dealt) is NOT applied by the core for form 23 (HandleShapeshiftBoosts
+# hard-codes 2457/71/2458 -> 21156/7376/7381), so a hand-written spell_linked_spell row (type 2 = aura
+# link: applied/removed with 932848's aura) adds it: data/sql/world/base/2026_11_11_01_era_gladiator_stance_link.sql.
+# It clones Berserker Stance Passive 7381 (hidden passive attrs, no duration) with family/masks ZEROED
+# (7381 carries family 4 mask_2 0x800 — a family-less helper escapes every warrior spellmod and the
+# family-4 SpellInfoCorrections sweep) and only Effect_1 = aura 213 MOD_RAGE_FROM_DAMAGE_DEALT +10 %.
+# Values PROVISIONAL (the node is re-placed with design version 3.2).
+- id: 932848
+  name: Gladiator Stance
+  template: 2458           # clone stock Berserker Stance (family 4, Category 47, instant, free, visual)
+  stanceBarOrder: 3        # stock Battle 0 / Defensive 1 / Berserker 2 -> slot 3 (2458 would put it on 2)
+  # SpellInfoCorrections.cpp:4733-4740 ORs SPELL_ATTR3_SUPPRESS_CASTER_PROCS (0x10000) onto 2457/2458/7376 BY ID
+  # ("Warrior stances passives"); a clone never receives it. Template 2458's DBC AttributesEx3 is 0x100000
+  # (ALLOW_AURA_WHILE_DEAD) -> post-fix value 0x110000 = 1114112, so entering the stance cannot fire caster
+  # procs, exactly like the stock stances (era_audit check_spellfix_inheritance).
+  # Read-only sweep 2026-11-11: no other by-id treatment of 2457/71/2458/7376/7381/21156 reaches these clones —
+  # no spell_custom_attr / spell_group / spell_script_names / spell_proc / spell_bonus_data / spell_ranks rows;
+  # spell_linked_spell only 7376 -> 57339 (Defensive tank threat, n/a); LoadSpellSpecific has no warrior case
+  # (NORMAL, same as 2458); the family-flag branches (SpellMgr.cpp:156, :3488, SpellInfoCorrections.cpp:5333)
+  # read flags/category that this clone shares with 2458; stance exclusivity is the generic aura-36 swap
+  # (SpellAuraEffects.cpp:2101). 7381 is applied by HandleShapeshiftBoosts (SpellAuraEffects.cpp:1388) only
+  # for form 19 — hence the spell_linked_spell row for 932849.
+  attributesEx3: 1114112
+  effects:
+  - { effect: 6, aura: 36,  basePoints: 0,  dieSides: 0, misc: 23,  targetA: 1 }   # SHAPESHIFT form 23
+  - { effect: 6, aura: 275, basePoints: 0,  dieSides: 0, misc: 0,   targetA: 1, maskA: -1, maskB: -1, maskC: -1 }   # MOD_IGNORE_SHAPESHIFT, all warrior spells
+  - { effect: 6, aura: 87,  basePoints: -5, dieSides: 0, misc: 127, targetA: 1 }   # -5 % damage taken, all schools
+  client:
+    name: Gladiator Stance
+    icon: 2775             # Ability_Warrior_UnrelentingAssault (PROVISIONAL; no era warrior tree uses it)
+    skillLine: 26          # Arms skill line, like the stock stances
+    description: "A gladiator's combat stance. All of your warrior abilities can be used regardless of stance, damage taken is reduced by 5%, and rage generated from damage dealt is increased by 10%."
+- id: 932849
+  name: Gladiator Stance Passive
+  template: 7381           # clone stock Berserker Stance Passive (hidden passive, no duration)
+  family: 0                # family-less (7381 is family 4 mask_2 0x800)
+  mask: 0
+  maskB: 0
+  maskC: 0
+  effects:
+  - { effect: 6, aura: 213, basePoints: 10, dieSides: 0, misc: 0, targetA: 1 }   # MOD_RAGE_FROM_DAMAGE_DEALT +10 %
+  client:
+    name: Gladiator Stance Passive
 tabs:
 - key: 1
   name: Arms
@@ -2219,6 +2277,25 @@ tabs:
     # kBaselineSpellGates row keyed on this node keeps force-granting stock r1 to WotLK-stage
     # warriors, whose trainer row for it is globally deleted.
     grants: {1: [932841]}
+- key: 4
+  name: Gladiator
+  background: WarriorArms  # PROVISIONAL (no Gladiator art in the 3.3.5a client)
+  nodes:
+  - id: 18553
+    slug: gladiator_stance
+    name: Gladiator Stance
+    tab: 4
+    tier: 0
+    col: 0
+    icon: ability_warrior_unrelentingassault
+    maxRank: 1
+    prereqTalentId: 0
+    prereqPoints: 0
+    tooltip:
+    - Teaches Gladiator Stance. All of your warrior abilities can be used regardless of stance, damage taken is
+      reduced by 5%, and rage generated from damage dealt is increased by 10%.
+    # GRANT of the era stance 932848 (helpers: GLADIATOR block). PROVISIONAL cell (re-placed with design 3.2).
+    grants: {1: [932848]}
 _ref:
   familyName: 4
   spells:
